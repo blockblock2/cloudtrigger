@@ -7,8 +7,9 @@ import re
 import requests
 
 SCRATCH = "https://scratch.mit.edu"
-# TurboWarp asks bots to identify themselves with a way to contact the owner.
-UA = "cloudtrigger/0.2 (Python cloud bot; https://github.com/blockblock2)"
+VERSION = "0.3.0"
+# TurboWarp requires bots to name their library + version and give contact info.
+UA = f"cloudtrigger/{VERSION} (Python cloud variable bot; +https://github.com/blockblock2/cloudtrigger)"
 
 
 class LoginError(Exception):

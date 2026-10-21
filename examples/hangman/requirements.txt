@@ -1,0 +1,1 @@
+cloudtrigger @ git+https://github.com/blockblock2/cloudtrigger@main

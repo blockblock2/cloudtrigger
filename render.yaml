@@ -1,0 +1,21 @@
+# Render Blueprint for the daily Hangman bot (examples/hangman).
+# New > Blueprint on render.com, pick this repo, then fill in PROJECT_ID.
+services:
+  - type: web
+    name: daily-hangman
+    runtime: python
+    plan: free
+    rootDir: examples/hangman
+    buildCommand: pip install -r requirements.txt
+    startCommand: python hangman_bot.py
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: PROJECT_ID
+        sync: false          # Render asks you for this when you create the service
+      - key: HANGMAN_SECRET
+        generateValue: true  # random, made by Render; nobody (including you) needs to see it
+      - key: HANGMAN_TZ
+        value: America/New_York
+      - key: PYTHON_VERSION
+        value: 3.12.7

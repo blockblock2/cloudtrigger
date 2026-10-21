@@ -42,8 +42,21 @@ What a handler gets (`change`): `.name`, `.value` (string), `.old`, `.number`, `
 You can also call `cloud.get("name")` and `cloud.set("name", value)` anywhere.
 
 ### Text
-Cloud variables only hold numbers (max 256 digits). `encode("hi")` → `"0809"`, `decode("0809")` → `"hi"`.
-Each character is two digits: its position in `cloudtrigger.encoding.CHARS` plus 1 — use the same character list in your Scratch project to decode.
+Cloud variables only hold numbers. `encode("hi")` → `"0910"`, `decode("0910")` → `"hi"`.
+Each character is two digits: its position in `cloudtrigger.encoding.CHARS` plus 1.
+`decode` copes with a lost leading zero (`"910"` still gives `"hi"`).
+
+Shortcuts: `change.text` (decoded value), `change.set_text("reply", "hello")`,
+`cloud.set_text(...)` and `cloud.get_text(...)`. One cloud variable holds 128 characters.
+
+`examples/cipher-demo.sb3` has ready-made Scratch **encode** and **decode** blocks using the
+same characters — copy them into your own project (drag the scripts onto your sprite in the
+editor). Pair it with `examples/word_bot.py`.
+
+## Examples
+- `examples/hangman/` — a daily, cheat-proof Hangman game with a server bot ([guide](examples/hangman/README.md))
+- `examples/cipher-demo.sb3` + `examples/word_bot.py` — text both ways between Scratch and a bot
+- `examples/bot.py` — rules and handlers
 
 ## Command line
 
@@ -72,14 +85,16 @@ Password comes from a prompt or `SCRATCH_PASSWORD`; you can pass `--session-id` 
 Run your project at `turbowarp.org/<project id>` and point the bot at TurboWarp's cloud server. No password or Scratcher status needed:
 
 ```python
-cloud = CloudWatcher(1394305521, "blockblock2", server="turbowarp")
+cloud = CloudWatcher(1394305521, server="turbowarp")
 ```
 
 ```bash
-cloudtrigger watch 1394305521 -u blockblock2 --server turbowarp
+cloudtrigger watch 1394305521 --server turbowarp
 ```
 
-The username is just a display name there. TurboWarp may reject names that look rude or impersonate someone.
+TurboWarp only accepts real Scratch usernames or `player` + 2–7 digits. Leave the username out and
+cloudtrigger picks a `player123456` name for you. Bots must also send contact info, which
+cloudtrigger does in its User-Agent ([TurboWarp's rules](https://docs.turbowarp.org/cloud-variables)).
 You can also pass any `wss://` URL as `server` for other cloud servers.
 
 ## Skipping the login

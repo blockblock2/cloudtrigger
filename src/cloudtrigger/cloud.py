@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 import threading
 import time
@@ -11,6 +12,7 @@ from typing import Any, Callable, Optional, Union
 
 import websocket
 
+from .encoding import decode, encode
 from .session import UA, LoginError, login
 
 LOGIN_HINT = ("If the password is right, Scratch is probably limiting logins after too many "
@@ -89,6 +91,15 @@ class Change:
         """Shortcut so handlers can do `change.set("reply", 1)`."""
         self.cloud.set(name, value)
 
+    @property
+    def text(self) -> str:
+        """The value decoded from digits back into text (see cloudtrigger.encode)."""
+        return decode(self.value)
+
+    def set_text(self, name: str, text: str) -> None:
+        """Encode text and put it in a cloud variable: `change.set_text("reply", "hi")`."""
+        self.cloud.set_text(name, text)
+
 
 Handler = Callable[[Change], Any]
 
@@ -110,7 +121,7 @@ class CloudWatcher:
     def __init__(
         self,
         project_id: Union[int, str],
-        username: str,
+        username: Optional[str] = None,
         password: Optional[str] = None,
         session_id: Optional[str] = None,
         min_interval: float = 0.11,
@@ -121,6 +132,9 @@ class CloudWatcher:
         """
         server: "scratch" (needs password or session_id), "turbowarp" (no login;
         run the project at turbowarp.org/<id>), or any wss:// URL.
+
+        username: your Scratch username. For TurboWarp it must be a real Scratch
+        account or "player" + digits; leave it out and a "player123456" name is picked.
         """
         if server in SERVERS:
             self.server, self.url = server, SERVERS[server]
@@ -131,6 +145,10 @@ class CloudWatcher:
         if self.server == "scratch" and not (password or session_id):
             raise ValueError("Give either password= or session_id= (or use server='turbowarp').")
         self.project_id = str(project_id)
+        if not username:
+            if self.server == "scratch":
+                raise ValueError("username is required for server='scratch'.")
+            username = f"player{random.randint(100000, 9999999)}"
         self.username = username
         self._password = password
         self.session_id = session_id
@@ -228,6 +246,17 @@ class CloudWatcher:
             self._last_send = time.monotonic()
         self.values[short_name(name)] = s
         log.info("set %s = %s", short_name(name), s)
+
+    def set_text(self, name: str, text: str) -> None:
+        """Encode text into digits and set it. Max 128 characters (256 digits)."""
+        digits = encode(text)
+        if len(digits) > MAX_LEN:
+            raise ValueError(f"Text too long for one cloud variable: {len(text)} chars (max {MAX_LEN // 2}).")
+        self.set(name, digits)
+
+    def get_text(self, name: str, default: str = "") -> str:
+        v = self.get(name)
+        return decode(v) if v not in (None, "", "0") else default
 
     # ---------- connection ----------
 
@@ -345,7 +374,9 @@ class CloudWatcher:
                         fatal = False
                 if self._got_data or time.monotonic() - started > 30:
                     quick_drops, backoff = 0, 2
-                else:
+                elif isinstance(e, CloudClosed):
+                    # the server keeps hanging up on us: something's wrong with the setup.
+                    # Plain network errors don't count, so a server bot keeps retrying.
                     quick_drops += 1
                 if fatal or not self.reconnect or quick_drops >= 4:
                     log.error("Scratch closed the cloud connection: %s", e)

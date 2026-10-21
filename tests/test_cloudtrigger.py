@@ -173,3 +173,23 @@ def test_login_failure_stops_without_retrying(monkeypatch):
     c2 = CloudWatcher(1, "me", password="pw")
     with pytest.raises(ConnectionError):
         c2.start()
+
+
+def test_decode_survives_lost_leading_zero():
+    d = encode("hi there")
+    assert d.startswith("0")
+    assert decode(d.lstrip("0")) == "hi there"
+    assert decode(float(d.lstrip("0")) if len(d) < 15 else d) == "hi there"
+
+
+def test_text_helpers():
+    c = make()
+
+    @c.on_change("request")
+    def h(ch):
+        ch.set_text("response", ch.text.upper())
+
+    push(c, "request", encode("hey"))
+    assert decode(sets(c)[0][1]) == "HEY"
+    with pytest.raises(ValueError):
+        c.set_text("x", "a" * 129)

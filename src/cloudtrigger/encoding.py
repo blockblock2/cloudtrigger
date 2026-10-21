@@ -22,7 +22,11 @@ def encode(text: str) -> str:
 
 
 def decode(digits: str) -> str:
-    s = str(digits)
+    s = str(digits).strip()
+    if s.endswith(".0"):          # a number that went through float()
+        s = s[:-2]
+    if len(s) % 2:                # cloud numbers can lose their leading 0 ("0910" -> "910")
+        s = "0" + s
     return "".join(
         CHARS[int(s[i:i + 2]) - 1]
         for i in range(0, len(s) - 1, 2)

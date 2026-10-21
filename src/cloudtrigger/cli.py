@@ -1,7 +1,7 @@
 """Command line: run rules from a JSON file or flags, or just watch.
 
   cloudtrigger watch 1234567890 -u blockblock2
-  cloudtrigger watch 1234567890 -u blockblock2 --server turbowarp
+  cloudtrigger watch 1234567890 --server turbowarp
   cloudtrigger run 1234567890 -u blockblock2 --rule "door=1 -> light=1"
   cloudtrigger run 1234567890 -u blockblock2 --rules rules.json
 
@@ -72,7 +72,7 @@ def main(argv=None) -> None:
 
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    if not a.username:
+    if not a.username and a.server == "scratch":
         p.error("need --username (or SCRATCH_USERNAME)")
     password = None
     if a.server == "scratch" and not a.session_id:
