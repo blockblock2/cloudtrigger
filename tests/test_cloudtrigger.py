@@ -155,3 +155,21 @@ def test_turbowarp_needs_no_login(monkeypatch):
 def test_scratch_still_requires_login():
     with pytest.raises(ValueError):
         CloudWatcher(1, "me")
+
+
+def test_login_failure_stops_without_retrying(monkeypatch):
+    import cloudtrigger.cloud as cc
+    from cloudtrigger import LoginError
+
+    calls = []
+    def bad_login(u, p):
+        calls.append(1)
+        raise LoginError("Scratch login failed (403): Something went wrong")
+    monkeypatch.setattr(cc, "login", bad_login)
+    c = CloudWatcher(1, "me", password="pw")
+    with pytest.raises(LoginError):
+        c.run()
+    assert len(calls) == 1
+    c2 = CloudWatcher(1, "me", password="pw")
+    with pytest.raises(ConnectionError):
+        c2.start()

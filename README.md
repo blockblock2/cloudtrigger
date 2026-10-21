@@ -82,6 +82,19 @@ cloudtrigger watch 1394305521 -u blockblock2 --server turbowarp
 The username is just a display name there. TurboWarp may reject names that look rude or impersonate someone.
 You can also pass any `wss://` URL as `server` for other cloud servers.
 
+## Skipping the login
+
+Scratch limits logins, so running a bot many times can get `Scratch login failed (403)`.
+Use the session cookie from a browser where you're already logged in instead:
+open scratch.mit.edu, then Developer Tools → Application (Chrome) or Storage (Safari/Firefox)
+→ Cookies → `scratchsessionsid`, and copy its value.
+
+```python
+cloud = CloudWatcher(1394305521, "blockblock2", session_id=os.environ["SCRATCH_SESSION_ID"])
+```
+
+Treat it like a password: anyone with it can act as your account.
+
 ## Good to know
 - The account needs to be a **Scratcher** (not "New Scratcher") to use cloud variables.
 - Values Scratch sends right when you connect are stored but don't fire handlers (pass `fire_on_initial=True` to change that).

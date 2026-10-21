@@ -11,7 +11,11 @@ from typing import Any, Callable, Optional, Union
 
 import websocket
 
-from .session import UA, login
+from .session import UA, LoginError, login
+
+LOGIN_HINT = ("If the password is right, Scratch is probably limiting logins after too many "
+              "tries: wait 15-30 minutes, or pass session_id= from your browser's "
+              "scratchsessionsid cookie so no login is needed.")
 
 log = logging.getLogger("cloudtrigger")
 
@@ -143,6 +147,7 @@ class CloudWatcher:
         self._stop = threading.Event()
         self._connected = threading.Event()
         self._initial_until = 0.0
+        self._error: Optional[BaseException] = None
 
     # ---------- registering reactions ----------
 
@@ -319,7 +324,14 @@ class CloudWatcher:
                 self._receive_forever()
             except KeyboardInterrupt:
                 break
+            except LoginError as e:
+                # Retrying a failed login just gets you blocked for longer.
+                self._error = e
+                self.close()
+                log.error("%s. %s", e, LOGIN_HINT)
+                raise
             except Exception as e:
+                self._error = e
                 self._connected.clear()
                 self.close()
                 if self._stop.is_set():
@@ -349,7 +361,11 @@ class CloudWatcher:
         """Run in a background thread; returns the thread."""
         t = threading.Thread(target=self.run, daemon=True, name="cloudtrigger")
         t.start()
-        self._connected.wait(timeout=30)
+        deadline = time.monotonic() + 30
+        while not self._connected.is_set() and t.is_alive() and time.monotonic() < deadline:
+            self._connected.wait(timeout=0.2)
+        if not self._connected.is_set():
+            raise ConnectionError(f"Couldn't connect: {self._error}") from self._error
         return t
 
     def stop(self) -> None:
