@@ -67,6 +67,10 @@ service runs both games, so it doesn't use any more free hours:
    `PROJECT_ID_ES` = that number. **Save**. Render restarts the bot with both games.
 3. The logs show `[en] ready` and `[es] ready`, and the status page lists both under `games`.
 
+Each game also has its own status page: `/hangman` and `/ahorcado` on your Render address
+(for example `https://daily-hangman.onrender.com/ahorcado`). These are only for checking on
+the bot; players never use them, since the games talk through TurboWarp's cloud.
+
 Why not a second server? Render's 750 free hours are per account; two services running
 all month need about 1,490 hours, so both would stop around the 15th.
 

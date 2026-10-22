@@ -103,6 +103,10 @@ LANGUAGES = {
 }
 
 
+# Status page address for each game: https://<your server>.onrender.com/<name>
+PAGES = {"en": "hangman", "es": "ahorcado"}
+
+
 @dataclass
 class Game:
     guessed: set = field(default_factory=set)
@@ -229,10 +233,19 @@ def load_language_words(lang: str) -> list[str]:
 def serve_status(games: dict[str, "Hangman"], port: int) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
-            stats = {lang: g.stats() for lang, g in games.items()}
-            first = next(iter(stats.values()))
-            body = json.dumps({"ok": True, **first, "games": stats}).encode()
-            self.send_response(200)
+            stats = {PAGES[lang]: g.stats() for lang, g in games.items()}
+            path = self.path.split("?")[0].strip("/").lower()
+            code = 200
+            if not path:                       # "/" — every game (UptimeRobot checks this)
+                first = next(iter(stats.values()))
+                data = {"ok": True, **first, "games": stats}
+            elif path in stats:                # "/hangman", "/ahorcado", ...
+                data = {"ok": True, "game": path, **stats[path]}
+            else:
+                code = 404
+                data = {"ok": False, "error": "no such game", "games": sorted(stats)}
+            body = json.dumps(data).encode()
+            self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
