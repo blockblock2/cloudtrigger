@@ -1,4 +1,5 @@
 # Render Blueprint for the daily Hangman bot (examples/hangman).
+# One free service runs both games (English + Spanish) so it fits in Render's 750 free hours.
 # New > Blueprint on render.com, pick this repo, then fill in PROJECT_ID.
 services:
   - type: web
@@ -12,7 +13,9 @@ services:
     autoDeploy: true
     envVars:
       - key: PROJECT_ID
-        sync: false          # Render asks you for this when you create the service
+        sync: false          # English game's project number
+      - key: PROJECT_ID_ES
+        sync: false          # Spanish game (Ahorcado) project number; leave empty to skip
       - key: HANGMAN_SECRET
         generateValue: true  # random, made by Render; nobody (including you) needs to see it
       - key: HANGMAN_TZ

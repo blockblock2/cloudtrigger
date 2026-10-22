@@ -5,14 +5,35 @@ in ☁ request, waits for the bot's matching reply in ☁ response, and shows it
 If no reply comes within 3 seconds it sends again (another player may have
 overwritten ☁ request at the same moment), and gives up after 5 tries.
 
-    python tools/make_hangman_sb3.py
+    python tools/make_hangman_sb3.py          # both languages
+    python tools/make_hangman_sb3.py es       # just Spanish (ahorcado.sb3)
 """
 import os
 
 from sb3lib import (CHARS, CIPHER_VARS, Sprite, Var, add_cipher, define_proc, nid, sprite_target,
                     stage_target, svg_asset, text_equals, write_sb3)
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "examples", "hangman", "hangman.sb3")
+import sys
+
+HERE = os.path.join(os.path.dirname(__file__), "..", "examples", "hangman")
+
+# Text shown in Scratch. This never goes through the cloud, so accents are fine here.
+TEXT = {
+    "en": {"file": "hangman.sb3", "title": "Daily Hangman", "subtitle": "A new word every day",
+           "asking": "Asking the bot for today's puzzle...",
+           "no_bot": "The Hangman bot isn't answering. Try again later!",
+           "lost_bot": "Lost the connection to the bot.",
+           "one_letter": "Type just one letter!",
+           "wrong": "    Wrong: ", "guess": "    Guess a letter:",
+           "win": "You got it: ", "win_end": "!  "},
+    "es": {"file": "ahorcado.sb3", "title": "Ahorcado Diario", "subtitle": "Una palabra nueva cada día",
+           "asking": "Pidiendo la palabra de hoy al bot...",
+           "no_bot": "El bot del Ahorcado no responde. ¡Inténtalo más tarde!",
+           "lost_bot": "Se perdió la conexión con el bot.",
+           "one_letter": "¡Escribe solo una letra!",
+           "wrong": "    Fallos: ", "guess": "    Adivina una letra:",
+           "win": "¡Lo lograste! Era: ", "win_end": "  "},
+}
 TIMEOUT_SECS = 3
 MAX_TRIES = 5
 
@@ -37,17 +58,18 @@ def gallows_svg(stage: int) -> bytes:
     return svg.encode()
 
 
-BACKDROP = (b'<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360" viewBox="0 0 480 360">'
-            b'<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
-            b'<stop offset="0" stop-color="#dcecff"/><stop offset="1" stop-color="#f7fbff"/></linearGradient></defs>'
-            b'<rect width="480" height="360" fill="url(#g)"/>'
-            b'<text x="240" y="38" font-family="sans-serif" font-size="26" font-weight="bold" '
-            b'text-anchor="middle" fill="#234">Daily Hangman</text>'
-            b'<text x="240" y="62" font-family="sans-serif" font-size="14" text-anchor="middle" '
-            b'fill="#567">A new word every day</text></svg>')
+BACKDROP_TEMPLATE = ('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360" viewBox="0 0 480 360">'
+            '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+            '<stop offset="0" stop-color="#dcecff"/><stop offset="1" stop-color="#f7fbff"/></linearGradient></defs>'
+            '<rect width="480" height="360" fill="url(#g)"/>'
+            '<text x="240" y="38" font-family="sans-serif" font-size="26" font-weight="bold" '
+            'text-anchor="middle" fill="#234">{title}</text>'
+            '<text x="240" y="62" font-family="sans-serif" font-size="14" text-anchor="middle" '
+            'fill="#567">{subtitle}</text></svg>')
 
 
-def build():
+def build(lang="en"):
+    t = TEXT[lang]
     cloud = {n: nid("cloud") for n in ("☁ request", "☁ response")}
 
     def cv(n):
@@ -208,7 +230,7 @@ def build():
     no_bot = s.block("control_if", {
         "CONDITION": s.boolean("operator_equals", OPERAND1=s.v("got"), OPERAND2=0),
         "SUBSTACK": s.sub([
-            s.block("looks_say", {"MESSAGE": "The Hangman bot isn't answering. Try again later!"}),
+            s.block("looks_say", {"MESSAGE": t["no_bot"]}),
             s.block("control_stop", fields={"STOP_OPTION": ["this script", None]},
                     mutation={"tagName": "mutation", "children": [], "hasnext": "false"}),
         ]),
@@ -223,13 +245,13 @@ def build():
             s.block("control_if", {
                 "CONDITION": s.boolean("operator_equals", OPERAND1=s.v("got"), OPERAND2=0),
                 "SUBSTACK": s.sub([
-                    s.block("looks_say", {"MESSAGE": "Lost the connection to the bot."}),
+                    s.block("looks_say", {"MESSAGE": t["lost_bot"]}),
                     s.block("control_stop", fields={"STOP_OPTION": ["this script", None]},
                             mutation={"tagName": "mutation", "children": [], "hasnext": "false"}),
                 ]),
             }),
         ]),
-        "SUBSTACK2": s.sub([s.block("looks_sayforsecs", {"MESSAGE": "Type just one letter!", "SECS": 1})]),
+        "SUBSTACK2": s.sub([s.block("looks_sayforsecs", {"MESSAGE": t["one_letter"], "SECS": 1})]),
     })
 
     play_loop = s.block("control_repeat_until", {
@@ -238,7 +260,7 @@ def build():
         "SUBSTACK": s.sub([
             sp_call(s.v("pattern")),
             s.block("sensing_askandwait", {"QUESTION": join(
-                s.v("shown"), "    Wrong: ", s.v("wrong"), "    Guess a letter:")}),
+                s.v("shown"), t["wrong"], s.v("wrong"), t["guess"])}),
             guess_branch,
         ]),
     })
@@ -246,7 +268,7 @@ def build():
     ending = s.block("control_if_else", {
         "CONDITION": s.boolean("operator_equals", OPERAND1=s.v("status"), OPERAND2="win"),
         "SUBSTACK": s.sub([s.block("looks_say", {"MESSAGE": join(
-            "You got it: ", s.v("pattern"), "!  ", s.v("extra"))})]),
+            t["win"], s.v("pattern"), t["win_end"], s.v("extra"))})]),
         "SUBSTACK2": s.sub([s.block("looks_say", {"MESSAGE": s.v("extra")})]),
     })
 
@@ -257,7 +279,7 @@ def build():
         s.setv("seq", 0),
         s.setv("last seen", ""),
         s.setv("status", ""),
-        s.block("looks_say", {"MESSAGE": "Asking the bot for today's puzzle..."}),
+        s.block("looks_say", {"MESSAGE": t["asking"]}),
         send_call("start"),
         no_bot,
         s.block("looks_sayforsecs", {"MESSAGE": s.v("extra"), "SECS": 2}),
@@ -273,12 +295,14 @@ def build():
         meta, f = svg_asset(gallows_svg(k), f"{k} misses", 100, 120)
         costumes.append(meta)
         files.append(f)
-    bd_meta, bd_file = svg_asset(BACKDROP, "backdrop", 240, 180)
-    write_sb3(OUT, [
+    backdrop = BACKDROP_TEMPLATE.format(title=t["title"], subtitle=t["subtitle"]).encode("utf-8")
+    bd_meta, bd_file = svg_asset(backdrop, "backdrop", 240, 180)
+    write_sb3(os.path.join(HERE, t["file"]), [
         stage_target({vid: [n, 0, True] for n, vid in cloud.items()}, bd_meta),
         sprite_target("Hangman", s, sprite_vars, costumes, lists=lists, x=-120, y=-30),
     ], files + [bd_file])
 
 
 if __name__ == "__main__":
-    build()
+    for lang in (sys.argv[1:] or TEXT):
+        build(lang)

@@ -87,3 +87,25 @@ def test_dictionary_skips_unknown_words_and_survives_outage():
     down = Hangman(SECRET, load_words(), define=lambda w: None)
     w, d = down.word_for(dt.date(2026, 1, 1))
     assert w and d == ""
+
+
+def test_spanish_game():
+    from hangman_bot import LANGUAGES, load_language_words
+    words = load_language_words("es")
+    assert len(words) > 200 and all(w.isascii() and w.isalpha() for w in words)
+    box = {"day": dt.date(2026, 10, 22)}
+    es = Hangman(SECRET + "|es", words, define=LANGUAGES["es"]["define"], lang="es",
+                 today=lambda: box["day"])
+    word = es.word_for(box["day"])[0]
+    assert word in words
+    st = fields(es.handle("9|1|start"))
+    assert st[5].startswith("Palabra de ayer: ")
+    for i, c in enumerate(dict.fromkeys(word), 2):
+        r = fields(es.handle(f"9|{i}|g:{c}"))
+    assert r[4] == "win" and r[5] == ""
+    misses = [c for c in "zqxjkwyfhvb" if c not in word][:6]
+    for i, c in enumerate(misses, 50):
+        r = fields(es.handle(f"8|{i}|g:{c}"))
+    assert r[4] == "lose" and word not in "|".join(r) and r[5].startswith("Se acabaron")
+    # accented text the bot sends is made safe for the cloud encoding
+    assert Hangman._fit("1|1|_|_|lose|", "mañana día ¡hola!") == "1|1|_|_|lose|manana dia hola!"

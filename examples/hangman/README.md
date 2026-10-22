@@ -15,9 +15,11 @@ Files:
 
 | File | What it is |
 |---|---|
-| `hangman.sb3` | The Scratch project |
+| `hangman.sb3` | The Scratch project (English) |
+| `ahorcado.sb3` | The same game in Spanish (Ahorcado Diario) |
 | `hangman_bot.py` | The bot that holds the word and checks guesses |
-| `words.txt` | The words it picks from (one per line, edit freely) |
+| `words.txt` | English words it picks from (one per line, edit freely) |
+| `words_es.txt` | Spanish words (letters a-z only: no accents or ñ, which cloud variables can't send) |
 | `test_hangman.py` | Tests for the game logic |
 
 ## 1. Put the project on Scratch
@@ -54,6 +56,22 @@ TurboWarp doesn't count as a visitor. To keep it awake, use a free uptime checke
 750 free hours a month is enough for this one service to run all month.
 
 If the bot is ever asleep or down, the game says *"The Hangman bot isn't answering."*
+
+## Spanish version (two projects, one server)
+
+`ahorcado.sb3` is its own Scratch project with its own daily word. The **same** Render
+service runs both games, so it doesn't use any more free hours:
+
+1. Upload `ahorcado.sb3` to Scratch, share it, copy its number.
+2. In Render: **daily-hangman → Environment → Add Environment Variable**:
+   `PROJECT_ID_ES` = that number. **Save**. Render restarts the bot with both games.
+3. The logs show `[en] ready` and `[es] ready`, and the status page lists both under `games`.
+
+Why not a second server? Render's 750 free hours are per account; two services running
+all month need about 1,490 hours, so both would stop around the 15th.
+
+The Spanish game doesn't show word meanings (there's no free Spanish dictionary service
+to rely on); its words are hand-picked instead.
 
 ## Changing things
 
