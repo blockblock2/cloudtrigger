@@ -9,7 +9,8 @@ One server can run both games: English and Spanish, each in its own project.
 
 Environment variables:
   PROJECT_ID       project ID of the English game
-  PROJECT_ID_ES    project ID of the Spanish game (Ahorcado)   — set at least one of these
+  PROJECT_ID_ES    project ID of the Spanish game (Ahorcado)
+  PROJECT_ID_WORDLE project ID of the Wordle game (see wordle.py)   — set at least one of these
   HANGMAN_SECRET   long random text; makes the daily word unguessable (required)
   HANGMAN_TZ       time zone the day changes in (default America/New_York)
   BOT_NAME         cloud username: a real Scratch account or "player" + digits
@@ -104,7 +105,7 @@ LANGUAGES = {
 
 
 # Status page address for each game: https://<your server>.onrender.com/<name>
-PAGES = {"en": "hangman", "es": "ahorcado"}
+PAGES = {"en": "hangman", "es": "ahorcado", "wordle": "wordle"}
 
 
 @dataclass
@@ -287,7 +288,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("cloudtrigger").setLevel(logging.WARNING)   # don't log every set
     secret = os.environ.get("HANGMAN_SECRET")
-    projects = {"en": os.environ.get("PROJECT_ID"), "es": os.environ.get("PROJECT_ID_ES")}
+    projects = {"en": os.environ.get("PROJECT_ID"), "es": os.environ.get("PROJECT_ID_ES"),
+                "wordle": os.environ.get("PROJECT_ID_WORDLE")}
     projects = {lang: pid.strip() for lang, pid in projects.items() if pid and pid.strip()}
     if not secret or not projects:
         raise SystemExit("Set HANGMAN_SECRET and PROJECT_ID and/or PROJECT_ID_ES.")
@@ -295,8 +297,12 @@ def main() -> None:
     tz = os.environ.get("HANGMAN_TZ", "America/New_York")
     games = {}
     for lang in projects:
-        # English keeps the plain secret so its words don't change; Spanish gets its own.
+        # English keeps the plain secret so its words don't change; others get their own.
         game_secret = secret if lang == "en" else f"{secret}|{lang}"
+        if lang == "wordle":
+            from wordle import Wordle
+            games[lang] = Wordle(game_secret, load_words(HERE / "words_wordle.txt"), tz)
+            continue
         games[lang] = Hangman(game_secret, load_language_words(lang), tz,
                               define=LANGUAGES[lang]["define"], lang=lang)
     if os.environ.get("PORT"):

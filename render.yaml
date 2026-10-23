@@ -16,6 +16,8 @@ services:
         sync: false          # English game's project number
       - key: PROJECT_ID_ES
         sync: false          # Spanish game (Ahorcado) project number; leave empty to skip
+      - key: PROJECT_ID_WORDLE
+        sync: false          # Wordle project number; leave empty to skip
       - key: HANGMAN_SECRET
         generateValue: true  # random, made by Render; nobody (including you) needs to see it
       - key: HANGMAN_TZ
