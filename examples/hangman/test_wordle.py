@@ -71,9 +71,20 @@ def test_reload_keeps_board_and_new_day_resets():
     assert r[2] == "" and r[4] == f"Yesterday's word: {ans}"
 
 
-def test_dictionary_down_still_lets_you_play():
+def test_dictionary_down_refuses_made_up_words():
     g, _ = make(check=lambda w: None)
-    assert f(g.handle("p|1|g:qqqqq"))[2].startswith("qqqqq")
+    for i, junk in enumerate(["jjddd", "gxfeg", "adieo", "wordl"], 1):
+        r = f(g.handle(f"p|{i}|g:{junk}"))
+        assert r[2] == "" and r[4] == "Not in the dictionary"
+    assert f(g.handle("p|9|g:adieu"))[2].startswith("adieu")      # real words still work offline
+
+
+def test_allowed_list_is_big_and_real():
+    from wordle import ALLOWED_FILE
+    allowed = set(load_words(ALLOWED_FILE))
+    assert len(allowed) > 10000 and {"crane", "adieu", "world", "pizza"} <= allowed
+    assert not {"jjddd", "gxfeg", "adieo", "wordl"} & allowed
+    assert set(WORDS) <= allowed | set(WORDS)
 
 
 def test_reply_fits_one_cloud_variable():

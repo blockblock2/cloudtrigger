@@ -24,10 +24,11 @@ import urllib.parse
 import urllib.request
 from typing import Callable, Optional
 
-from hangman_bot import DICTIONARY_URL, Hangman, lookup_definition
+from hangman_bot import DICTIONARY_URL, HERE, Hangman, load_words, lookup_definition
 
 TRIES = 6
 LENGTH = 5
+ALLOWED_FILE = HERE / "words_wordle_allowed.txt"   # every word players may guess
 
 
 def score(guess: str, answer: str) -> str:
@@ -66,23 +67,32 @@ class Wordle(Hangman):
     def __init__(self, secret: str, words: list[str], tz: str = "America/New_York",
                  define: Callable[[str], Optional[str]] = lookup_definition,
                  check_word: Callable[[str], Optional[bool]] = is_real_word,
-                 today: Optional[Callable[[], dt.date]] = None):
+                 today: Optional[Callable[[], dt.date]] = None,
+                 allowed: Optional[list[str]] = None):
         words = [w for w in words if len(w) == LENGTH]
         super().__init__(secret, words, tz, define=define, today=today, lang="en")
         self.check_word = check_word
-        self._known: dict[str, bool] = {w: True for w in words}
+        if allowed is None:
+            allowed = load_words(ALLOWED_FILE) if ALLOWED_FILE.exists() else []
+        self.allowed = set(words) | {w for w in allowed if len(w) == LENGTH}
+        self._known: dict[str, bool] = {}
         self._known_lock = threading.Lock()
 
     def _real(self, word: str) -> bool:
+        """In the word list, or (for rare words) confirmed by the online dictionary.
+        If the dictionary can't be reached the guess is refused, so made-up words can
+        never be used to test letters for free."""
+        if word in self.allowed:
+            return True
         with self._known_lock:
             if word in self._known:
                 return self._known[word]
         ok = self.check_word(word)
-        if ok is None:          # dictionary down: don't block the player
-            return True
+        if ok is None:
+            return False
         with self._known_lock:
             if len(self._known) > 20000:
-                self._known = {w: True for w in self.words}
+                self._known.clear()
             self._known[word] = ok
         return ok
 
