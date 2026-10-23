@@ -1,11 +1,13 @@
-"""Build examples/wordle-board-sample.sb3: the Wordle board drawn with Pen stamps,
-plus live typing. No cloud/link code: connect it to link-sample.sb3 yourself.
+"""Build examples/wordle-board-sample.sb3: a Wordle game for the cloudtrigger Wordle bot.
+
+  Tile sprite  draws the board with Pen stamps and handles typing
+  Link sprite  encode / decode / parse / send, talks to the bot through ☁ request/☁ response
 
 Global variables (for all sprites):
   board   rows from the bot: 5 letters + 5 colours each ("cranebgybb...")
   guess   what the player is typing right now
   locked  1 while waiting for the bot or after the game ends (typing ignored)
-  demo    1 = pretend to be the bot (every guess comes back gray), 0 = real link
+  demo    1 = pretend to be the bot (every guess comes back gray), 0 = real bot (default)
 
 Keys: letters type, left arrow deletes (Scratch can't see Backspace), Enter submits.
 Enter with 5 letters broadcasts "submit".
@@ -18,7 +20,8 @@ import sys
 
 from PIL import Image
 
-from sb3lib import Rep, Sprite, Var, define_proc, nid, sprite_target, stage_target, write_sb3
+from sb3lib import (CHARS, CIPHER_VARS, LINK_VARS, Rep, Sprite, Var, add_cipher, add_link, define_proc, join,
+                    nid, sprite_target, stage_target, svg_asset, write_sb3)
 
 sys.path.insert(0, os.path.dirname(__file__))
 from make_wordle_tiles import frames  # noqa: E402
@@ -38,8 +41,118 @@ def png_asset(img, name):
             (md5 + ".png", data))
 
 
+ROBOT = (b'<svg xmlns="http://www.w3.org/2000/svg" width="80" height="90" viewBox="0 0 80 90">'
+         b'<line x1="40" y1="4" x2="40" y2="18" stroke="#456" stroke-width="4"/>'
+         b'<circle cx="40" cy="6" r="5" fill="#6aaa64"/>'
+         b'<rect x="6" y="18" width="68" height="52" rx="14" fill="#5b8def" stroke="#2c5bb8" stroke-width="4"/>'
+         b'<circle cx="27" cy="42" r="8" fill="#fff"/><circle cx="53" cy="42" r="8" fill="#fff"/>'
+         b'<circle cx="29" cy="43" r="3.5" fill="#123"/><circle cx="55" cy="43" r="3.5" fill="#123"/>'
+         b'<rect x="20" y="72" width="40" height="16" rx="5" fill="#2c5bb8"/></svg>')
+
+
+def build_link(g, bc, gv):
+    """The Link sprite: cipher, decipher and link blocks, plus the start and submit scripts."""
+    s = Sprite()
+    s.var("chars")
+    for n in CIPHER_VARS + LINK_VARS:
+        if n not in s.vars:
+            s.var(n)
+    request, response = Var("☁ request", g["☁ request"]), Var("☁ response", g["☁ response"])
+    enc_call, dec_call = add_cipher(s)
+    send_call, field, lists = add_link(s, request, response, enc_call, dec_call)
+
+    def setg(n, value):
+        return s.setv(n, value, g[n])
+
+    def eq(a, b):
+        return s.boolean("operator_equals", OPERAND1=a, OPERAND2=b)
+
+    def draw_and_wait():
+        bid = s.block("event_broadcastandwait")
+        s.blocks[bid]["inputs"]["BROADCAST_INPUT"] = [1, [11, "draw", bc["draw"]]]
+        return bid
+
+    def stop_script():
+        return s.block("control_stop", fields={"STOP_OPTION": ["this script", None]},
+                       mutation={"tagName": "mutation", "children": [], "hasnext": "false"})
+
+    def show_result():
+        """Copy the reply onto the board, say the message, unlock typing if still playing."""
+        return [
+            setg("board", field(3)),
+            draw_and_wait(),
+            s.block("control_if_else", {
+                "CONDITION": eq(field(4), "play"),
+                "SUBSTACK": s.sub([
+                    s.block("control_if", {
+                        "CONDITION": s.boolean("operator_not", OPERAND=eq(field(5), "")),
+                        "SUBSTACK": s.sub([s.block("looks_sayforsecs", {"MESSAGE": field(5), "SECS": 2})]),
+                    }),
+                    setg("locked", 0),
+                ]),
+                "SUBSTACK2": s.sub([
+                    setg("locked", 1),
+                    s.block("control_if_else", {
+                        "CONDITION": eq(field(4), "win"),
+                        "SUBSTACK": s.sub([s.block("looks_say", {"MESSAGE": join(s, "You got it! ", field(5))})]),
+                        "SUBSTACK2": s.sub([s.block("looks_say", {"MESSAGE": field(5)})]),
+                    }),
+                ]),
+            }),
+        ]
+
+    # green flag: who am I, then ask the bot for today's board
+    s.chain([
+        s.block("event_whenflagclicked", top=True),
+        s.setv("chars", CHARS),
+        s.block("control_if_else", {
+            "CONDITION": eq(s.rep("sensing_username"), ""),
+            "SUBSTACK": s.sub([s.setv("id", s.rep("operator_random", FROM=10000, TO=99999))]),
+            "SUBSTACK2": s.sub([s.setv("id", s.rep("sensing_username"))]),
+        }),
+        s.setv("seq", s.rep("operator_random", FROM=1, TO=99999)),
+        s.setv("last seen", ""),
+        s.block("control_if", {"CONDITION": eq(gv("demo"), 1), "SUBSTACK": s.sub([stop_script()])}),
+        setg("locked", 1),
+        s.block("looks_say", {"MESSAGE": "Getting today's puzzle..."}),
+        send_call("start"),
+        s.block("control_if", {"CONDITION": eq(s.v("got"), 0), "SUBSTACK": s.sub([
+            s.block("looks_say", {"MESSAGE": "The Wordle bot isn't answering. Try again later!"}),
+            stop_script()])}),
+        s.block("looks_say", {"MESSAGE": ""}),
+        *show_result(),
+    ])
+
+    # Enter pressed with 5 letters: send the guess
+    rcv = s.block("event_whenbroadcastreceived", fields={"BROADCAST_OPTION": ["submit", bc["submit"]]}, top=True)
+    s.blocks[rcv]["x"], s.blocks[rcv]["y"] = 0, 600
+    s.chain([rcv, s.block("control_if", {"CONDITION": eq(gv("demo"), 0), "SUBSTACK": s.sub([
+        send_call(join(s, "g:", gv("guess"))),
+        s.block("control_if_else", {
+            "CONDITION": eq(s.v("got"), 1),
+            "SUBSTACK": s.sub([
+                s.block("control_if", {   # the guess was accepted: clear the typing row
+                    "CONDITION": s.boolean("operator_gt",
+                                           OPERAND1=s.rep("operator_length", STRING=field(3)),
+                                           OPERAND2=s.rep("operator_length", STRING=gv("board"))),
+                    "SUBSTACK": s.sub([setg("guess", "")]),
+                }),
+                *show_result(),
+            ]),
+            "SUBSTACK2": s.sub([
+                s.block("looks_sayforsecs", {"MESSAGE": "The bot isn't answering.", "SECS": 2}),
+                setg("locked", 0),
+            ]),
+        }),
+    ])})])
+
+    sprite_vars = {vid: [n, CHARS if n == "chars" else ""] for n, vid in s.vars.items()}
+    meta, f = svg_asset(ROBOT, "robot", 40, 45)
+    return s, sprite_vars, lists, [meta], [f]
+
+
 def build():
-    g = {n: nid("g") for n in ("board", "guess", "locked", "demo")}
+    g = {n: nid("g") for n in ("board", "guess", "locked", "demo", "☁ request", "☁ response")}
     bc = {n: nid("bc") for n in ("draw", "submit")}
 
     def gv(n):
@@ -150,7 +263,8 @@ def build():
 
     # ---- start ----
     s.chain([s.block("event_whenflagclicked", top=True),
-             setg("board", ""), setg("guess", ""), setg("locked", 0),
+             setg("board", ""), setg("guess", ""),
+             s.block("control_if", {"CONDITION": eq(gv("demo"), 1), "SUBSTACK": s.sub([setg("locked", 0)])}),
              db_call("")])
     s.chain([when_received("draw"), db_call("")])
 
@@ -235,16 +349,23 @@ def build():
         costumes.append(meta)
         files.append(f)
 
+    link, link_vars, link_lists, link_costumes, link_files = build_link(g, bc, gv)
+
     white = Image.new("RGB", (960, 720), "#ffffff")
     bd_meta, bd_file = png_asset(white, "white")
     bd_meta.update(rotationCenterX=480, rotationCenterY=360)
 
     stage = stage_target({g["board"]: ["board", ""], g["guess"]: ["guess", ""],
-                          g["locked"]: ["locked", 0], g["demo"]: ["demo", 1]}, bd_meta)
+                          g["locked"]: ["locked", 1], g["demo"]: ["demo", 0],
+                          g["☁ request"]: ["☁ request", 0, True], g["☁ response"]: ["☁ response", 0, True]},
+                         bd_meta)
     stage["broadcasts"] = {bc[n]: n for n in bc}
     sprite_vars = {vid: [n, ""] for n, vid in s.vars.items()}
-    write_sb3(OUT, [stage, sprite_target("Tile", s, sprite_vars, costumes)],
-              files + [bd_file], extensions=["pen"])
+    link_target = sprite_target("Link", link, link_vars, link_costumes, lists=link_lists, x=-190, y=-110,
+                                size=70)
+    link_target["layerOrder"] = 2
+    write_sb3(OUT, [stage, sprite_target("Tile", s, sprite_vars, costumes), link_target],
+              files + [bd_file] + link_files, extensions=["pen"])
 
 
 if __name__ == "__main__":
