@@ -108,7 +108,7 @@ class Sub(Rep):
     pass
 
 
-def define_proc(s, name, argname):
+def define_proc(s, name, argname, warp=True):
     """Create a 'run without screen refresh' custom block with one text input.
     Returns (definition_id, argument-reporter factory, call factory)."""
     arg_id = nid("arg")
@@ -118,7 +118,7 @@ def define_proc(s, name, argname):
     proto = s.block("procedures_prototype", shadow=True, mutation={
         "tagName": "mutation", "children": [], "proccode": proccode,
         "argumentids": json.dumps([arg_id]), "argumentnames": json.dumps([argname]),
-        "argumentdefaults": json.dumps([""]), "warp": "true"})
+        "argumentdefaults": json.dumps([""]), "warp": "true" if warp else "false"})
     s.blocks[proto]["inputs"][arg_id] = [1, shadow_arg]
     s.blocks[shadow_arg]["parent"] = proto
     s.blocks[defn]["inputs"]["custom_block"] = [1, proto]
@@ -130,7 +130,7 @@ def define_proc(s, name, argname):
     def call(value):
         bid = s.block("procedures_call", mutation={
             "tagName": "mutation", "children": [], "proccode": proccode,
-            "argumentids": json.dumps([arg_id]), "warp": "true"})
+            "argumentids": json.dumps([arg_id]), "warp": "true" if warp else "false"})
         s.blocks[bid]["inputs"][arg_id] = s._input(value, bid)
         return bid
 
@@ -245,3 +245,81 @@ def sprite_target(name, s, variables, costumes, lists=None, x=0, y=0, size=100):
             "costumes": costumes, "sounds": [], "volume": 100, "layerOrder": 1, "visible": True,
             "x": x, "y": y, "size": size, "direction": 90, "draggable": False,
             "rotationStyle": "all around"}
+
+
+LINK_VARS = ("reply", "k", "id", "seq", "packet", "tries", "got", "last seen")
+
+
+def join(s, *parts):
+    """join(a, join(b, join(c, ...))) as one reporter."""
+    out = parts[-1]
+    for part in reversed(parts[:-1]):
+        out = s.rep("operator_join", STRING1=part, STRING2=out)
+    return out
+
+
+def add_link(s, request, response, enc_call, dec_call, timeout=3, max_tries=5):
+    """Add 'parse (text)' and 'send (command)': talk to the bot through two cloud variables.
+    After send, 'got' is 1 on success and the reply is split into the sprite list 'fields'.
+    Returns (send_call, field, lists)."""
+    list_id = nid("list")
+    lst = ["fields", list_id]
+
+    def list_block(opcode, **inputs):
+        return s.block(opcode, inputs, {"LIST": list(lst)})
+
+    def field(n):
+        return Rep(list_block("data_itemoflist", INDEX=n))
+
+    p_def, p_arg, p_call = define_proc(s, "parse", "text")
+    split_if = s.block("control_if_else", {
+        "CONDITION": s.boolean("operator_equals",
+                               OPERAND1=s.rep("operator_letter_of", LETTER=s.v("k"), STRING=s.v("reply")),
+                               OPERAND2="|"),
+        "SUBSTACK": s.sub([list_block("data_addtolist", ITEM="")]),
+        "SUBSTACK2": s.sub([list_block("data_replaceitemoflist",
+                                       INDEX=Rep(list_block("data_lengthoflist")),
+                                       ITEM=s.rep("operator_join",
+                                                  STRING1=field(Rep(list_block("data_lengthoflist"))),
+                                                  STRING2=s.rep("operator_letter_of", LETTER=s.v("k"),
+                                                                STRING=s.v("reply"))))]),
+    })
+    s.chain([p_def, s.setv("reply", p_arg()), list_block("data_deletealloflist"),
+             list_block("data_addtolist", ITEM=""), s.setv("k", 1),
+             s.block("control_repeat", {"TIMES": s.rep("operator_length", STRING=s.v("reply")),
+                                        "SUBSTACK": s.sub([split_if, s.changev("k", 1)])})])
+    s.blocks[p_def]["x"], s.blocks[p_def]["y"] = 1400, 900
+
+    send_def, send_arg, send_call = define_proc(s, "send", "command", warp=False)
+    check_reply = s.block("control_if", {
+        "CONDITION": s.boolean("operator_not", OPERAND=text_equals(s, response, s.v("last seen"))),
+        "SUBSTACK": s.sub([
+            s.setv("last seen", response),
+            dec_call(response),
+            p_call(s.v("result")),
+            s.block("control_if", {
+                "CONDITION": s.boolean("operator_and",
+                                       OPERAND1=s.boolean("operator_equals", OPERAND1=field(1), OPERAND2=s.v("id")),
+                                       OPERAND2=s.boolean("operator_equals", OPERAND1=field(2), OPERAND2=s.v("seq"))),
+                "SUBSTACK": s.sub([s.setv("got", 1)]),
+            }),
+        ]),
+    })
+    wait_loop = s.block("control_repeat_until", {
+        "CONDITION": s.boolean("operator_or",
+                               OPERAND1=s.boolean("operator_equals", OPERAND1=s.v("got"), OPERAND2=1),
+                               OPERAND2=s.boolean("operator_gt", OPERAND1=s.rep("sensing_timer"), OPERAND2=timeout)),
+        "SUBSTACK": s.sub([check_reply]),
+    })
+    attempt = s.block("control_repeat_until", {
+        "CONDITION": s.boolean("operator_or",
+                               OPERAND1=s.boolean("operator_equals", OPERAND1=s.v("got"), OPERAND2=1),
+                               OPERAND2=s.boolean("operator_gt", OPERAND1=s.v("tries"), OPERAND2=max_tries - 1)),
+        "SUBSTACK": s.sub([s.setv(request.name, s.v("packet"), request.vid), s.block("sensing_resettimer"),
+                           wait_loop, s.changev("tries", 1)]),
+    })
+    s.chain([send_def, s.changev("seq", 1),
+             enc_call(join(s, s.v("id"), "|", s.v("seq"), "|", send_arg())),
+             s.setv("packet", s.v("result")), s.setv("tries", 0), s.setv("got", 0), attempt])
+    s.blocks[send_def]["x"], s.blocks[send_def]["y"] = 1400, 0
+    return send_call, field, {list_id: ["fields", []]}

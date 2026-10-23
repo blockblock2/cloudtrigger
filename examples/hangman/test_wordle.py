@@ -85,3 +85,13 @@ def test_reply_fits_one_cloud_variable():
         g.handle(f"{pid}|{i}|g:{w}")
     r = g.handle(f"{pid}|99|g:{ans}")
     assert len(r) <= 128
+
+
+def test_reload_with_same_seq_gets_fresh_reply():
+    g, _ = make()
+    ans = g.word_for(dt.date(2026, 10, 23))[0]
+    other = next(w for w in WORDS if w != ans)
+    g.handle("kim|1|start")
+    g.handle(f"kim|2|g:{other}")
+    # page reloaded and seq numbers reused: a different command is not a retry
+    assert f(g.handle(f"kim|2|g:{ans}"))[3] == "win"

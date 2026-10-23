@@ -129,7 +129,7 @@ class Hangman:
         self._today = today or (lambda: dt.datetime.now(self.tz).date())
         self._day: Optional[dt.date] = None
         self._games: dict[str, Game] = {}
-        self._replies: dict[tuple[str, str], str] = {}   # answer retries with the same reply
+        self._replies: dict[tuple[str, str, str], str] = {}   # answer retries with the same reply
         self._daily: dict[dt.date, tuple[str, str]] = {}  # day -> (word, definition)
         self._lock = threading.Lock()
         self._word_lock = threading.Lock()
@@ -177,8 +177,8 @@ class Hangman:
         pid, seq, cmd = parts[0][:12], parts[1][:6], parts[2].strip().lower()
         with self._lock:
             day = self._roll_day()
-            if (pid, seq) in self._replies:
-                return self._replies[(pid, seq)]
+            if (pid, seq, cmd) in self._replies:
+                return self._replies[(pid, seq, cmd)]
             word, definition = self.word_for(day)
             game = self._games.setdefault(pid, Game())
             extra = ""
@@ -198,7 +198,7 @@ class Hangman:
                 extra = self.text["lose"]
             pattern = "".join(c if c in game.guessed else "_" for c in word)
             reply = self._fit(f"{pid}|{seq}|{pattern}|{''.join(game.wrong)}|{status}|", extra)
-            self._replies[(pid, seq)] = reply
+            self._replies[(pid, seq, cmd)] = reply
             if len(self._replies) > 5000:
                 self._replies.clear()
             return reply

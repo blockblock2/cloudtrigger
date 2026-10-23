@@ -97,8 +97,8 @@ class Wordle(Hangman):
             real = self._real(guess)            # may ask the dictionary: do it outside the lock
         with self._lock:
             day = self._roll_day()
-            if (pid, seq) in self._replies:
-                return self._replies[(pid, seq)]
+            if (pid, seq, cmd) in self._replies:
+                return self._replies[(pid, seq, cmd)]
             answer, definition = self.word_for(day)
             rows = self._games.setdefault(pid, [])
             message = ""
@@ -117,7 +117,7 @@ class Wordle(Hangman):
             elif status == "lose":
                 message = "Out of tries! See the word tomorrow."
             reply = self._fit(f"{pid}|{seq}|{''.join(rows)}|{status}|", message)
-            self._replies[(pid, seq)] = reply
+            self._replies[(pid, seq, cmd)] = reply
             if len(self._replies) > 5000:
                 self._replies.clear()
             return reply
