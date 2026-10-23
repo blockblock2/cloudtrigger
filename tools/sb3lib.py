@@ -219,8 +219,8 @@ def svg_asset(data, name, cx, cy):
              "rotationCenterX": cx, "rotationCenterY": cy}, (md5 + ".svg", data))
 
 
-def write_sb3(path, targets, files):
-    project = {"targets": targets, "monitors": [], "extensions": [],
+def write_sb3(path, targets, files, extensions=()):
+    project = {"targets": targets, "monitors": [], "extensions": list(extensions),
                "meta": {"semver": "3.0.0", "vm": "0.2.0", "agent": "cloudtrigger"}}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
