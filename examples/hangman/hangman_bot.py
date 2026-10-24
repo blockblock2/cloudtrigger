@@ -16,6 +16,7 @@ Environment variables:
   BOT_NAME         cloud username: a real Scratch account or "player" + digits
                    (default: a random player123456 name, as TurboWarp asks bots to use)
   PORT             if set, serves a tiny status page (needed by some free hosts)
+  ADMIN_KEY        password for the owner page /admin, which has a "New word" button per game
 
 Messages (both directions are cloudtrigger.encode()'d text in one cloud variable):
   ☁ request   Scratch -> bot   "<player id>|<seq>|start"   or   "<player id>|<seq>|g:<letter>"
@@ -133,6 +134,7 @@ class Hangman:
         self._daily: dict[dt.date, tuple[str, str]] = {}  # day -> (word, definition)
         self._lock = threading.Lock()
         self._word_lock = threading.Lock()
+        self._rerolls: dict[dt.date, int] = {}            # day -> how many times "New word" was pressed
 
     # ---------- daily word ----------
     def word_for(self, day: dt.date) -> tuple[str, str]:
@@ -142,7 +144,9 @@ class Hangman:
     def _word_for(self, day: dt.date) -> tuple[str, str]:
         if day in self._daily:
             return self._daily[day]
-        digest = hashlib.sha256(f"{self.secret}|{day.isoformat()}".encode()).digest()
+        n = self._rerolls.get(day, 0)
+        seed = f"{self.secret}|{day.isoformat()}" + (f"|new{n}" if n else "")
+        digest = hashlib.sha256(seed.encode()).digest()
         start = int.from_bytes(digest[:8], "big") % len(self.words)
         chosen = (self.words[start], "")
         for k in range(10):   # use the first candidate the dictionary knows
@@ -157,6 +161,27 @@ class Hangman:
         for old in [d for d in self._daily if d < day - dt.timedelta(days=2)]:
             del self._daily[old]
         return chosen
+
+    def new_word(self) -> int:
+        """Owner's "New word" button: pick a different word for today and reset everyone's
+        game. Returns the new word's length (the word itself is never shown)."""
+        with self._lock:
+            day = self._roll_day()
+            with self._word_lock:
+                old = self._word_for(day)[0]
+                new = old
+                for _ in range(5):                       # make sure it's actually different
+                    self._rerolls[day] = self._rerolls.get(day, 0) + 1
+                    self._daily.pop(day, None)
+                    new = self._word_for(day)[0]
+                    if new != old:
+                        break
+                for gone in [d for d in self._rerolls if d < day - dt.timedelta(days=2)]:
+                    del self._rerolls[gone]
+            self._games.clear()
+            self._replies.clear()
+            log.info("[%s] new word picked by the owner (%d letters)", self.lang, len(new))
+            return len(new)
 
     def _roll_day(self) -> dt.date:
         day = self._today()
@@ -231,11 +256,53 @@ def load_language_words(lang: str) -> list[str]:
     return load_words(HERE / LANGUAGES[lang]["words"])
 
 
-def serve_status(games: dict[str, "Hangman"], port: int) -> None:
+ADMIN_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Word games: owner</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:0 16px;color:#1a1a1b;background:#fff}
+ h1{font-size:22px} input{width:100%;padding:10px;font-size:16px;box-sizing:border-box;margin:6px 0 16px}
+ button{display:block;width:100%;padding:12px;margin:8px 0;font-size:16px;font-weight:600;border:0;
+        border-radius:8px;background:#6aaa64;color:#fff;cursor:pointer}
+ .msg{padding:10px 12px;border-radius:8px;margin-bottom:16px} .ok{background:#e3f1e1} .bad{background:#fbe3e3}
+ small{color:#666}
+</style></head><body>
+<h1>New word</h1>{message}
+<form method="post" action="/admin">
+ <label>Owner key<input name="key" type="password" autocomplete="current-password" required></label>
+ {buttons}
+</form>
+<small>Picks a different word for today and resets everyone's board for that game.
+Restarting the server goes back to the day's normal word.</small>
+</body></html>"""
+
+
+def serve_status(games: dict[str, "Hangman"], port: int, admin_key: str = "") -> None:
+    import hmac
+    import time
+
     class Handler(BaseHTTPRequestHandler):
+        def _send(self, code: int, body: bytes, kind: str) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+
+        def _admin(self, message: str = "", code: int = 200) -> None:
+            buttons = "".join(f'<button name="game" value="{name}">New {name} word</button>'
+                              for name in (PAGES[lang] for lang in games))
+            html = ADMIN_PAGE.replace("{message}", message).replace("{buttons}", buttons)
+            self._send(code, html.encode(), "text/html; charset=utf-8")
+
         def do_GET(self):  # noqa: N802
-            stats = {PAGES[lang]: g.stats() for lang, g in games.items()}
             path = self.path.split("?")[0].strip("/").lower()
+            if path == "admin":
+                if not admin_key:
+                    return self._admin('<div class="msg bad">Set ADMIN_KEY on the server first.</div>')
+                return self._admin()
+            stats = {PAGES[lang]: g.stats() for lang, g in games.items()}
             code = 200
             if not path:                       # "/" — every game (UptimeRobot checks this)
                 first = next(iter(stats.values()))
@@ -245,14 +312,26 @@ def serve_status(games: dict[str, "Hangman"], port: int) -> None:
             else:
                 code = 404
                 data = {"ok": False, "error": "no such game", "games": sorted(stats)}
-            body = json.dumps(data).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(code, json.dumps(data).encode(), "application/json")
 
         do_HEAD = do_GET
+
+        def do_POST(self):  # noqa: N802
+            if self.path.split("?")[0].strip("/").lower() != "admin":
+                return self._send(404, b"not found", "text/plain")
+            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+            key = (form.get("key") or [""])[0]
+            name = (form.get("game") or [""])[0]
+            if not admin_key or not hmac.compare_digest(key.encode(), admin_key.encode()):
+                time.sleep(1)                  # slow down guessing
+                return self._admin('<div class="msg bad">Wrong key.</div>', 403)
+            lang = next((lang for lang in games if PAGES[lang] == name), None)
+            if lang is None:
+                return self._admin('<div class="msg bad">No such game.</div>', 404)
+            letters = games[lang].new_word()
+            self._admin(f'<div class="msg ok">New {name} word picked ({letters} letters). '
+                        f'Everyone\'s {name} board was reset.</div>')
 
         def log_message(self, *args):
             pass
@@ -306,7 +385,7 @@ def main() -> None:
         games[lang] = Hangman(game_secret, load_language_words(lang), tz,
                               define=LANGUAGES[lang]["define"], lang=lang)
     if os.environ.get("PORT"):
-        serve_status(games, int(os.environ["PORT"]))
+        serve_status(games, int(os.environ["PORT"]), os.environ.get("ADMIN_KEY", "").strip())
 
     def prepare_words() -> None:
         """Look words up ahead of time so no player waits on the dictionary."""

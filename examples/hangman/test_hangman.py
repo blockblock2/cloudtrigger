@@ -109,3 +109,43 @@ def test_spanish_game():
     assert r[4] == "lose" and word not in "|".join(r) and r[5].startswith("Se acabaron")
     # accented text the bot sends is made safe for the cloud encoding
     assert Hangman._fit("1|1|_|_|lose|", "mañana día ¡hola!") == "1|1|_|_|lose|manana dia hola!"
+
+
+def test_new_word_button():
+    g, box = make()
+    day = box["day"]
+    old = g.word_for(day)[0]
+    g.handle(f"1|1|g:{old[0]}")
+    assert g.stats()["players_today"] == 1
+    n = g.new_word()
+    new = g.word_for(day)[0]
+    assert new != old and n == len(new)
+    assert g.stats()["players_today"] == 0                    # everyone's game reset
+    assert fields(g.handle("1|1|start"))[2] == "_" * len(new)  # same seq is not a stale reply
+    box["day"] = day + dt.timedelta(days=1)
+    assert fields(g.handle("1|2|start"))[5] == f"Yesterday's word: {new}"   # tomorrow shows the new one
+
+
+def test_admin_page():
+    import socket, urllib.request, urllib.error, urllib.parse
+    from hangman_bot import serve_status
+    g, _ = make()
+    old = g.word_for(g._today())[0]
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0)); port = sock.getsockname()[1]
+    serve_status({"en": g}, port, "owner-secret-key")
+    import time; time.sleep(0.2)
+    base = f"http://127.0.0.1:{port}"
+    page = urllib.request.urlopen(base + "/admin").read().decode()
+    assert "New hangman word" in page
+    def post(key):
+        data = urllib.parse.urlencode({"key": key, "game": "hangman"}).encode()
+        try:
+            return urllib.request.urlopen(base + "/admin", data).read().decode()
+        except urllib.error.HTTPError as e:
+            return e.read().decode()
+    assert "Wrong key" in post("nope") and g.word_for(g._today())[0] == old
+    assert "New hangman word picked" in post("owner-secret-key")
+    assert g.word_for(g._today())[0] != old
+    assert old not in post("owner-secret-key")               # the page never shows the word
+    assert urllib.request.urlopen(base + "/").status == 200   # UptimeRobot page still fine

@@ -20,6 +20,8 @@ services:
         sync: false          # Wordle project number; leave empty to skip
       - key: HANGMAN_SECRET
         generateValue: true  # random, made by Render; nobody (including you) needs to see it
+      - key: ADMIN_KEY
+        generateValue: true  # password for /admin (the "New word" buttons); copy it from Environment
       - key: HANGMAN_TZ
         value: America/New_York
       - key: PYTHON_VERSION
